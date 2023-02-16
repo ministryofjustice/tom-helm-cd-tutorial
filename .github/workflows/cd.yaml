@@ -15,21 +15,48 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Build
-        run: docker build -t foo .
-      - name: Push to ECR
-        id: ecr
+      - name: Build content-api image
+        run: |
+          cd content-api
+          docker build -t content-api .
+      - name: Push content-api to ECR
         uses: jwalton/gh-ecr-push@v1
         with:
           access-key-id: ${{ secrets.ECR_AWS_ACCESS_KEY_ID }}
           secret-access-key: ${{ secrets.ECR_AWS_SECRET_ACCESS_KEY }}
           region: eu-west-2
-          local-image: foo
-          image: ${{ secrets.ECR_NAME }}:${{ github.sha }}
-      - name: Update image tag
-        env:
-          ECR_URL: ${{ secrets.ECR_URL }}
-        run: export IMAGE_TAG=${{ github.sha }} && cat kubernetes-deploy.tpl | envsubst > kubernetes-deploy.yaml
+          local-image: content-api
+          image: ${{ secrets.ECR_NAME }}:content-api-${{ github.sha }}
+      - name: Build worker image
+        run: |
+          cd worker
+          docker build -t worker .
+      - name: Push worker to ECR
+        uses: jwalton/gh-ecr-push@v1
+        with:
+          access-key-id: ${{ secrets.ECR_AWS_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.ECR_AWS_SECRET_ACCESS_KEY }}
+          region: eu-west-2
+          local-image: worker
+          image: ${{ secrets.ECR_NAME }}:worker-${{ github.sha }}
+      - name: Build rails-app image
+        run: |
+          cd rails-app
+          docker build -t rails-app .
+      - name: Push rails-app to ECR
+        uses: jwalton/gh-ecr-push@v1
+        with:
+          access-key-id: ${{ secrets.ECR_AWS_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.ECR_AWS_SECRET_ACCESS_KEY }}
+          region: eu-west-2
+          local-image: rails-app
+          image: ${{ secrets.ECR_NAME }}:rails-app-${{ github.sha }}
+      - name: Update `values.yaml`
+        run: |
+          export GITHUB_SHA=${{ github.sha }}
+          export ECR_URL=${{ secrets.ECR_URL }}
+          cat helm_deploy/multi-container-app/values.tpl \
+            | envsubst > helm_deploy/multi-container-app/values.yaml
       - name: Authenticate to the cluster
         env:
           KUBE_CLUSTER: ${{ secrets.KUBE_CLUSTER }}
@@ -39,6 +66,9 @@ jobs:
           kubectl config set-credentials deploy-user --token=${{ secrets.KUBE_TOKEN }}
           kubectl config set-context ${KUBE_CLUSTER} --cluster=${KUBE_CLUSTER} --user=deploy-user --namespace=${{ secrets.KUBE_NAMESPACE }}
           kubectl config use-context ${KUBE_CLUSTER}
-      - name: Apply the updated manifest
+      - name: Upgrade the Helm chart
         run: |
-          kubectl -n ${KUBE_NAMESPACE} apply -f kubernetes-deploy.yaml
+          cd helm_deploy/multi-container-app/
+          helm upgrade myapplication . \
+            --values values.yaml \
+            --namespace ${{ secrets.KUBE_NAMESPACE }}
