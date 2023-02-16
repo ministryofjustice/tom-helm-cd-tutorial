@@ -42,6 +42,8 @@ jobs:
       - name: Build rails-app image
         run: |
           cd rails-app
+          rm Gemfile.lock
+          bundle install
           docker build -t rails-app .
       - name: Push rails-app to ECR
         uses: jwalton/gh-ecr-push@v1
